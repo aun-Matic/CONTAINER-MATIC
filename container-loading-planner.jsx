@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import * as THREE from "three";
 
 // ============================================================
@@ -705,8 +705,9 @@ function removeBackground(img, tolerance = 45) {
 // ============================================================
 // SIDE ELEVATION VIEW
 // ============================================================
-function SideElevView({ container, vehicles, selectedId, onSelectVehicle, onUpdateVehicle }) {
+const SideElevView = forwardRef(function SideElevView({ container, vehicles, selectedId, onSelectVehicle, onUpdateVehicle }, ref) {
   const canvasRef = useRef(null);
+  useImperativeHandle(ref, () => ({ getCanvas: () => canvasRef.current }), []);
   const imgCacheRef = useRef({});
   const [dragging, setDragging] = useState(null);
   const [zoom, setZoom] = useState(1);
@@ -1031,7 +1032,7 @@ function SideElevView({ container, vehicles, selectedId, onSelectVehicle, onUpda
       </div>
     </div>
   );
-}
+});
 
 // ============================================================
 // BOX TOP VIEW (2D top-down)
@@ -1204,7 +1205,7 @@ export default function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [addPreset, setAddPreset] = useState("hilux_dc");
   const [custom, setCustom] = useState({ length: 5300, width: 1850, height: 1800, weight: 2000, label: "" });
-  const [savedLayouts, setSavedLayouts] = useState([]);
+
   const [container, setContainer] = useState({ ...CONTAINER_40FT });
   const [showContainerEdit, setShowContainerEdit] = useState(false);
   const [history, setHistory] = useState([]);
@@ -1214,8 +1215,54 @@ export default function App() {
   const [showAddBox, setShowAddBox] = useState(false);
   const [addBoxPreset, setAddBoxPreset] = useState("eu_pallet");
   const [customBox, setCustomBox] = useState({ length: 1000, width: 800, height: 800, weight: 50, label: "" });
+  const [projectName, setProjectName] = useState("My Project");
   const vehiclesRef = useRef([]);
   vehiclesRef.current = vehicles;
+  const sideElevRef = useRef(null);
+  const importFileRef = useRef(null);
+
+  const exportProject = () => {
+    const data = { projectName, container, vehicles, boxes };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${projectName.replace(/\s+/g, "_") || "project"}.clp.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const importProject = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (data.container) setContainer(data.container);
+        if (data.vehicles) { setVehicles(data.vehicles); setSelectedId(null); }
+        if (data.boxes) { setBoxes(data.boxes); setSelectedBoxId(null); }
+        if (data.projectName) setProjectName(data.projectName);
+      } catch { alert("ไฟล์ไม่ถูกต้อง"); }
+    };
+    reader.readAsText(file);
+  };
+
+  const exportPng = () => {
+    const canvas = sideElevRef.current?.getCanvas();
+    if (!canvas) { alert("สลับไปหน้า Car Load ก่อน"); return; }
+    const a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = `${projectName.replace(/\s+/g, "_") || "layout"}.png`;
+    a.click();
+  };
+
+  const printView = () => {
+    const canvas = sideElevRef.current?.getCanvas();
+    if (!canvas) { alert("สลับไปหน้า Car Load ก่อน"); return; }
+    const url = canvas.toDataURL("image/png");
+    const win = window.open("", "_blank");
+    win.document.write(`<!DOCTYPE html><html><head><title>${projectName}</title><style>*{margin:0;padding:0}body{background:#fff}img{max-width:100%;display:block}h3{font-family:sans-serif;padding:8px 12px;font-size:13px}@media print{h3{margin:0}}</style></head><body><h3>${projectName} — ${container.name} | ${new Date().toLocaleDateString("th-TH")}</h3><img src="${url}"/></body></html>`);
+    win.document.close();
+    win.addEventListener("load", () => win.print());
+  };
 
   const totalWeight = vehicles.reduce((s, v) => s + v.weight, 0);
   const overweight = totalWeight > container.maxPayload;
@@ -1373,11 +1420,23 @@ export default function App() {
           <div style={{ width: 32, height: 32, background: "linear-gradient(135deg,#00ffaa,#00aa77)", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#0a0a18" }}>📦</div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#00ffaa" }}>CONTAINER LOADING PLANNER</div>
-            <div style={{ fontSize: 9, color: "#777" }}>40ft HC • Pickup Truck Drawing View</div>
+            <input
+              value={projectName}
+              onChange={e => setProjectName(e.target.value)}
+              style={{ background: "transparent", border: "none", borderBottom: "1px solid #3a4a66", color: "#aab", fontSize: 10, outline: "none", width: 180, padding: "1px 2px" }}
+              placeholder="ชื่อ Project..."
+            />
           </div>
         </div>
-        <div style={{ display: "flex", gap: 5 }}>
-          <button style={S.btn} onClick={() => { const n = prompt("ชื่อ Layout:", `Layout ${savedLayouts.length + 1}`); if (n) setSavedLayouts((p) => [...p, { name: n, vehicles: JSON.parse(JSON.stringify(vehicles)), date: new Date().toLocaleString("th-TH") }]); }}>💾 Save</button>
+        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          <button style={S.btn} onClick={exportProject} title="Export โปรเจกต์เป็น JSON">💾 Export</button>
+          <label style={{ ...S.btn, cursor: "pointer" }} title="Import โปรเจกต์จาก JSON">
+            📂 Import
+            <input ref={importFileRef} type="file" accept=".json,.clp.json" style={{ display: "none" }}
+              onChange={e => { if (e.target.files[0]) { importProject(e.target.files[0]); e.target.value = ""; } }} />
+          </label>
+          <button style={S.btn} onClick={exportPng} title="ดาวน์โหลด PNG (Car Load view)">⬇ PNG</button>
+          <button style={S.btn} onClick={printView} title="Print / PDF (Car Load view)">🖨 Print</button>
           <button style={S.btn} onClick={autoArrange} disabled={!vehicles.length}>⚡ Auto</button>
         </div>
       </div>
@@ -1554,16 +1613,6 @@ export default function App() {
           </div>
           )}
 
-          {savedLayouts.length > 0 && (
-            <div style={{ ...S.sec, maxHeight: 100, overflow: "auto" }}>
-              <div style={S.lbl}>💾 Saved</div>
-              {savedLayouts.map((l, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", cursor: "pointer", fontSize: 11 }} onClick={() => { setVehicles(JSON.parse(JSON.stringify(l.vehicles))); setSelectedId(null); }}>
-                  <span>{l.name}</span><span style={{ fontSize: 9, color: "#555" }}>{l.date}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         <div style={S.vp}>
@@ -1577,7 +1626,7 @@ export default function App() {
             <button style={{ ...S.btn, padding: "3px 8px", opacity: future.length ? 1 : 0.35 }} onClick={redo} disabled={!future.length} title="Ctrl+Y">↪ Redo</button>
           </div>
           <div style={S.va}>
-            {viewMode==="car" && <SideElevView container={container} vehicles={vehicles} selectedId={selectedId} onSelectVehicle={setSelectedId} onUpdateVehicle={updateV}/>}
+            {viewMode==="car" && <SideElevView ref={sideElevRef} container={container} vehicles={vehicles} selectedId={selectedId} onSelectVehicle={setSelectedId} onUpdateVehicle={updateV}/>}
             {viewMode==="boxtop" && <BoxTopView container={container} boxes={boxes} selectedId={selectedBoxId} onSelectBox={setSelectedBoxId} onMoveBox={moveBox} collisions={boxCollisions}/>}
             {viewMode==="box3d" && <BoxScene container={container} boxes={boxes} selectedId={selectedBoxId}/>}
           </div>
