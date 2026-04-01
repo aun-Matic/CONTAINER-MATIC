@@ -32,6 +32,15 @@ const TRUCK_PRESETS = [
   { id: "custom", name: "กำหนดเอง (Custom)", length: 5300, width: 1850, height: 1800, weight: 2000, wheelbase: 3000, cabRatio: 0.50 },
 ];
 
+const BOX_PRESETS = [
+  { id: "eu_pallet", name: "EU Pallet",      length: 1200, width: 800,  height: 1450, weight: 800 },
+  { id: "th_pallet", name: "TH Pallet",      length: 1100, width: 1100, height: 1450, weight: 800 },
+  { id: "box_s",     name: "กล่อง S",        length: 600,  width: 400,  height: 400,  weight: 20  },
+  { id: "box_m",     name: "กล่อง M",        length: 800,  width: 600,  height: 600,  weight: 40  },
+  { id: "box_l",     name: "กล่อง L",        length: 1200, width: 800,  height: 800,  weight: 80  },
+  { id: "box_custom",name: "กำหนดเอง",       length: 1000, width: 800,  height: 800,  weight: 50  },
+];
+
 const COLORS = ["#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6", "#EC4899", "#06B6D4", "#F97316"];
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -1025,12 +1034,173 @@ function SideElevView({ container, vehicles, selectedId, onSelectVehicle, onUpda
 }
 
 // ============================================================
+// BOX TOP VIEW (2D top-down)
+// ============================================================
+function BoxTopView({ container, boxes, selectedId, onSelectBox, onMoveBox, collisions }) {
+  const canvasRef = useRef(null);
+  const [dragging, setDragging] = useState(null);
+  const [dragOff, setDragOff] = useState({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
+  const PAD = 50;
+
+  const getScale = useCallback(() => {
+    const c = canvasRef.current; if (!c) return 1;
+    const r = c.getBoundingClientRect();
+    return Math.min((r.width - PAD * 2) / container.innerLength, (r.height - PAD * 2) / container.innerWidth);
+  }, [container]);
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const w = rect.width, h = rect.height;
+    const scale = getScale(); scaleRef.current = scale;
+    const ox = PAD, oy = PAD;
+    const cW = container.innerLength * scale, cH = container.innerWidth * scale;
+
+    ctx.fillStyle = "#18253a"; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = "#ffffff10"; ctx.lineWidth = 0.5;
+    for (let x = 1000; x < container.innerLength; x += 1000) { ctx.beginPath(); ctx.moveTo(ox + x*scale, oy); ctx.lineTo(ox + x*scale, oy+cH); ctx.stroke(); }
+    for (let y = 500; y < container.innerWidth; y += 500) { ctx.beginPath(); ctx.moveTo(ox, oy+y*scale); ctx.lineTo(ox+cW, oy+y*scale); ctx.stroke(); }
+
+    ctx.strokeStyle = "#00ffaa"; ctx.lineWidth = 2; ctx.strokeRect(ox, oy, cW, cH);
+    const ds = (container.innerWidth - container.doorWidth) / 2;
+    ctx.strokeStyle = "#00ffaa88"; ctx.lineWidth = 3; ctx.setLineDash([8,4]);
+    ctx.beginPath(); ctx.moveTo(ox+cW, oy+ds*scale); ctx.lineTo(ox+cW, oy+(ds+container.doorWidth)*scale); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#00ffaa"; ctx.font = "bold 11px monospace"; ctx.textAlign = "center";
+    ctx.fillText(`${container.innerLength} mm`, ox+cW/2, oy-16);
+    ctx.save(); ctx.translate(ox-20, oy+cH/2); ctx.rotate(-Math.PI/2); ctx.fillText(`${container.innerWidth} mm`, 0, 0); ctx.restore();
+    ctx.fillStyle = "#00ffaa66"; ctx.font = "10px sans-serif"; ctx.textAlign = "left";
+    ctx.fillText("DOOR →", ox+cW+8, oy+cH/2+4);
+
+    boxes.forEach((b) => {
+      const bx = ox + b.x*scale, by = oy + b.y*scale;
+      const bw = b.length*scale, bh = b.width*scale;
+      const isSelected = b.id === selectedId, hasCol = collisions.has(b.id);
+      ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.fillRect(bx+2, by+2, bw, bh);
+      ctx.fillStyle = b.color + (hasCol ? "cc" : "99"); ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = hasCol ? "#ff4444" : isSelected ? "#ffffff" : b.color;
+      ctx.lineWidth = isSelected ? 2 : 1.5; ctx.strokeRect(bx, by, bw, bh);
+      ctx.strokeStyle = b.color+"44"; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx+bw,by+bh); ctx.moveTo(bx+bw,by); ctx.lineTo(bx,by+bh); ctx.stroke();
+      const fs = Math.max(8, Math.min(bw,bh)*0.16);
+      ctx.fillStyle = "#ffffffcc"; ctx.font = `${isSelected?"bold ":""}${fs}px sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(b.preset, bx+bw/2, by+bh/2 - fs*0.5);
+      ctx.font = `${Math.max(7,fs*0.8)}px monospace`; ctx.fillStyle = "#ffffff88";
+      ctx.fillText(`${b.length}×${b.width}×${b.height}`, bx+bw/2, by+bh/2+fs*0.5);
+      if (isSelected) { ctx.strokeStyle="#ffffff"; ctx.lineWidth=2; ctx.setLineDash([4,3]); ctx.strokeRect(bx-3,by-3,bw+6,bh+6); ctx.setLineDash([]); }
+    });
+  }, [container, boxes, selectedId, collisions, getScale]);
+
+  useEffect(() => { draw(); }, [draw]);
+  useEffect(() => { window.addEventListener("resize", draw); return () => window.removeEventListener("resize", draw); }, [draw]);
+
+  const getPos = (e) => { const r = canvasRef.current.getBoundingClientRect(); return { cx: e.clientX-r.left, cy: e.clientY-r.top }; };
+  const handleDown = (e) => {
+    const { cx, cy } = getPos(e); const s = scaleRef.current;
+    for (let i = boxes.length-1; i >= 0; i--) {
+      const b = boxes[i];
+      const bx = PAD+b.x*s, by = PAD+b.y*s, bw = b.length*s, bh = b.width*s;
+      if (cx>=bx && cx<=bx+bw && cy>=by && cy<=by+bh) { onSelectBox(b.id); setDragging(b.id); setDragOff({x:cx-bx,y:cy-by}); return; }
+    }
+    onSelectBox(null);
+  };
+  const handleMove = (e) => { if (!dragging) return; const {cx,cy}=getPos(e); const s=scaleRef.current; onMoveBox(dragging, Math.round((cx-PAD-dragOff.x)/s), Math.round((cy-PAD-dragOff.y)/s)); };
+  const handleUp = () => setDragging(null);
+
+  return <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:dragging?"grabbing":"crosshair",display:"block"}} onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={handleUp}/>;
+}
+
+// ============================================================
+// BOX 3D SCENE
+// ============================================================
+function BoxScene({ container, boxes, selectedId }) {
+  const mountRef = useRef(null);
+  const sceneRef = useRef({});
+  const frameRef = useRef(null);
+
+  useEffect(() => {
+    const mount = mountRef.current; if (!mount) return;
+    const w = mount.clientWidth, h = mount.clientHeight;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xdce8f5);
+    scene.fog = new THREE.FogExp2(0xdce8f5, 0.00004);
+    const camera = new THREE.PerspectiveCamera(50, w/h, 10, 100000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(w, h); renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+    renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    mount.appendChild(renderer.domElement);
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.8);
+    dir.position.set(15000,20000,10000); dir.castShadow=true;
+    dir.shadow.mapSize.set(2048,2048); dir.shadow.camera.near=100; dir.shadow.camera.far=50000;
+    dir.shadow.camera.left=-15000; dir.shadow.camera.right=15000; dir.shadow.camera.top=15000; dir.shadow.camera.bottom=-15000;
+    scene.add(dir);
+    const gnd = new THREE.Mesh(new THREE.PlaneGeometry(60000,60000), new THREE.MeshLambertMaterial({color:0xc8d8e8}));
+    gnd.rotation.x=-Math.PI/2; gnd.position.y=-5; gnd.receiveShadow=true; scene.add(gnd);
+    scene.add(new THREE.GridHelper(40000,40,0x8899bb,0xaabbcc));
+    sceneRef.current = { scene, camera, renderer, mount };
+    let isDown=false,startX=0,startY=0,theta=0.7,phi=0.55,radius=20000;
+    const target=new THREE.Vector3(6000,1200,0);
+    const updateCam=()=>{ camera.position.set(target.x+radius*Math.sin(phi)*Math.cos(theta),target.y+radius*Math.cos(phi),target.z+radius*Math.sin(phi)*Math.sin(theta)); camera.lookAt(target); };
+    updateCam();
+    const onDown=(e)=>{isDown=true;startX=e.clientX;startY=e.clientY;};
+    const onMove=(e)=>{if(!isDown)return;theta+=(e.clientX-startX)*0.005;phi=Math.max(0.1,Math.min(Math.PI/2-0.05,phi-(e.clientY-startY)*0.005));startX=e.clientX;startY=e.clientY;updateCam();};
+    const onUp=()=>{isDown=false;};
+    const onWheel=(e)=>{radius=Math.max(4000,Math.min(45000,radius+e.deltaY*12));updateCam();};
+    renderer.domElement.addEventListener("mousedown",onDown); renderer.domElement.addEventListener("mousemove",onMove);
+    renderer.domElement.addEventListener("mouseup",onUp); renderer.domElement.addEventListener("wheel",onWheel);
+    const animate=()=>{frameRef.current=requestAnimationFrame(animate);renderer.render(scene,camera);};
+    animate();
+    const onResize=()=>{const nw=mount.clientWidth,nh=mount.clientHeight;camera.aspect=nw/nh;camera.updateProjectionMatrix();renderer.setSize(nw,nh);};
+    window.addEventListener("resize",onResize);
+    return ()=>{
+      cancelAnimationFrame(frameRef.current); window.removeEventListener("resize",onResize);
+      renderer.domElement.removeEventListener("mousedown",onDown); renderer.domElement.removeEventListener("mousemove",onMove);
+      renderer.domElement.removeEventListener("mouseup",onUp); renderer.domElement.removeEventListener("wheel",onWheel);
+      if(mount.contains(renderer.domElement))mount.removeChild(renderer.domElement);
+      renderer.dispose();
+    };
+  }, []);
+
+  useEffect(() => {
+    const { scene } = sceneRef.current; if (!scene) return;
+    const rem=[]; scene.traverse((o)=>{if(o.userData.dynamic)rem.push(o);}); rem.forEach((o)=>scene.remove(o));
+    const cEdge=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(container.innerLength,container.innerHeight,container.innerWidth)),new THREE.LineBasicMaterial({color:0x00ffaa}));
+    cEdge.position.set(container.innerLength/2,container.innerHeight/2,0); cEdge.userData.dynamic=true; scene.add(cEdge);
+    const cf=new THREE.Mesh(new THREE.PlaneGeometry(container.innerLength,container.innerWidth),new THREE.MeshLambertMaterial({color:0x1a3a2a,transparent:true,opacity:0.4,side:THREE.DoubleSide}));
+    cf.rotation.x=-Math.PI/2; cf.position.set(container.innerLength/2,2,0); cf.receiveShadow=true; cf.userData.dynamic=true; scene.add(cf);
+    const wallMat=new THREE.MeshLambertMaterial({color:0x88aacc,transparent:true,opacity:0.1,side:THREE.DoubleSide});
+    [-1,1].forEach((s)=>{ const w=new THREE.Mesh(new THREE.PlaneGeometry(container.innerLength,container.innerHeight),wallMat); w.position.set(container.innerLength/2,container.innerHeight/2,s*container.innerWidth/2); w.userData.dynamic=true; scene.add(w); });
+    const bw=new THREE.Mesh(new THREE.PlaneGeometry(container.innerWidth,container.innerHeight),wallMat);
+    bw.rotation.y=Math.PI/2; bw.position.set(0,container.innerHeight/2,0); bw.userData.dynamic=true; scene.add(bw);
+
+    boxes.forEach((b) => {
+      const color=new THREE.Color(b.color); const isSel=b.id===selectedId;
+      const geo=new THREE.BoxGeometry(b.length,b.height,b.width);
+      const mesh=new THREE.Mesh(geo,new THREE.MeshPhongMaterial({color,specular:0x222222,shininess:40,transparent:true,opacity:isSel?1:0.88}));
+      mesh.position.set(b.x+b.length/2, b.z+b.height/2, b.y-container.innerWidth/2+b.width/2);
+      mesh.castShadow=true; mesh.userData.dynamic=true; scene.add(mesh);
+      const edges=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:isSel?0xffffff:0x000000,transparent:true,opacity:isSel?0.9:0.25}));
+      edges.position.copy(mesh.position); edges.userData.dynamic=true; scene.add(edges);
+    });
+  }, [container, boxes, selectedId]);
+
+  return <div ref={mountRef} style={{width:"100%",height:"100%",cursor:"grab"}}/>;
+}
+
+// ============================================================
 // MAIN APP
 // ============================================================
 export default function App() {
   const [vehicles, setVehicles] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
-  const [viewMode, setViewMode] = useState("split");
+  const [viewMode, setViewMode] = useState("car");
   const [showAdd, setShowAdd] = useState(false);
   const [addPreset, setAddPreset] = useState("hilux_dc");
   const [custom, setCustom] = useState({ length: 5300, width: 1850, height: 1800, weight: 2000, label: "" });
@@ -1039,6 +1209,11 @@ export default function App() {
   const [showContainerEdit, setShowContainerEdit] = useState(false);
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
+  const [boxes, setBoxes] = useState([]);
+  const [selectedBoxId, setSelectedBoxId] = useState(null);
+  const [showAddBox, setShowAddBox] = useState(false);
+  const [addBoxPreset, setAddBoxPreset] = useState("eu_pallet");
+  const [customBox, setCustomBox] = useState({ length: 1000, width: 800, height: 800, weight: 50, label: "" });
   const vehiclesRef = useRef([]);
   vehiclesRef.current = vehicles;
 
@@ -1124,6 +1299,36 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
+
+  const boxCollisions = useMemo(() => {
+    const c = new Set();
+    for (let i = 0; i < boxes.length; i++) for (let j = i+1; j < boxes.length; j++) {
+      const a=boxes[i],b=boxes[j];
+      if(a.x<b.x+b.length&&a.x+a.length>b.x&&a.y<b.y+b.width&&a.y+a.width>b.y){c.add(a.id);c.add(b.id);}
+    }
+    boxes.forEach((b)=>{ if(b.x<0||b.y<0||b.x+b.length>container.innerLength||b.y+b.width>container.innerWidth)c.add(b.id); });
+    return c;
+  }, [boxes, container]);
+
+  const totalBoxWeight = boxes.reduce((s,b)=>s+b.weight,0);
+
+  const addBox = () => {
+    const p = BOX_PRESETS.find(t=>t.id===addBoxPreset);
+    const isCust = addBoxPreset==="box_custom";
+    saveHistory();
+    const nb = {
+      id: generateId(),
+      preset: isCust?(customBox.label||"Custom"):p.name,
+      length: isCust?customBox.length:p.length, width: isCust?customBox.width:p.width,
+      height: isCust?customBox.height:p.height, weight: isCust?customBox.weight:p.weight,
+      x: 200, y: Math.round((container.innerWidth-(isCust?customBox.width:p.width))/2),
+      z: 0, color: COLORS[boxes.length%COLORS.length],
+    };
+    setBoxes(prev=>[...prev,nb]); setSelectedBoxId(nb.id); setShowAddBox(false);
+  };
+  const updateBox = (id,u) => setBoxes(p=>p.map(b=>b.id===id?{...b,...u}:b));
+  const moveBox = (id,x,y) => updateBox(id,{x:Math.max(0,x),y:Math.max(0,y)});
+  const removeBox = (id) => { saveHistory(); setBoxes(p=>p.filter(b=>b.id!==id)); if(selectedBoxId===id)setSelectedBoxId(null); };
 
   const updateV = (id, u) => setVehicles((p) => p.map((v) => v.id === id ? { ...v, ...u } : v));
   const moveV = (id, x, y) => updateV(id, { x: Math.max(-500, x), y: Math.max(-500, y) });
@@ -1219,6 +1424,7 @@ export default function App() {
             {collisions.size > 0 && <div style={{ color: "#ff4444", fontSize: 10, marginTop: 4, fontWeight: 600 }}>⚠️ ชนกัน/เกินขอบ {collisions.size} คัน</div>}
           </div>
 
+          {(viewMode==="car") ? (
           <div style={{ ...S.sec, flex: 1, overflow: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <div style={S.lbl}>🚗 รถในตู้ ({vehicles.length})</div>
@@ -1304,6 +1510,49 @@ export default function App() {
             ))}
             {!vehicles.length && <div style={{ textAlign: "center", color: "#444", padding: 16, fontSize: 12 }}>กด "+ เพิ่มรถ" เพื่อเริ่มวางแผน</div>}
           </div>
+          ) : (
+          <div style={{ ...S.sec, flex: 1, overflow: "auto" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+              <div style={S.lbl}>📦 สินค้า ({boxes.length}) • {totalBoxWeight.toLocaleString()} kg</div>
+              <button style={{...S.btn,...S.btnP,padding:"3px 8px"}} onClick={()=>setShowAddBox(!showAddBox)}>+ เพิ่ม</button>
+            </div>
+            {showAddBox && (
+              <div style={{background:"#161638",borderRadius:7,padding:9,marginBottom:8,border:"1px solid #00ffaa33"}}>
+                <select style={S.sel} value={addBoxPreset} onChange={e=>setAddBoxPreset(e.target.value)}>
+                  {BOX_PRESETS.map(p=><option key={p.id} value={p.id}>{p.name} {p.id!=="box_custom"?`(${p.length}×${p.width}×${p.height}mm)`:""}</option>)}
+                </select>
+                {addBoxPreset==="box_custom" && (
+                  <div style={{marginTop:6,display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+                    {[["ชื่อ","label","text"],["ยาว mm","length","number"],["กว้าง mm","width","number"],["สูง mm","height","number"],["น้ำหนัก kg","weight","number"]].map(([l,k,t])=>(
+                      <div key={k}><label style={{fontSize:9,color:"#777"}}>{l}</label><input style={S.inp} type={t} value={customBox[k]} onChange={e=>setCustomBox({...customBox,[k]:t==="number"?Number(e.target.value):e.target.value})} /></div>
+                    ))}
+                  </div>
+                )}
+                <button style={{...S.btn,...S.btnP,width:"100%",marginTop:7}} onClick={addBox}>✓ เพิ่มสินค้า</button>
+              </div>
+            )}
+            {boxes.map(b=>(
+              <div key={b.id} style={S.card(b.id===selectedBoxId, boxCollisions.has(b.id))} onClick={()=>setSelectedBoxId(b.id===selectedBoxId?null:b.id)}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{width:10,height:10,borderRadius:2,background:b.color}}/>
+                    <span style={{fontWeight:600,fontSize:11}}>{b.preset}</span>
+                  </div>
+                  <button style={{...S.btn,...S.btnD,padding:"1px 5px",fontSize:10}} onClick={e=>{e.stopPropagation();removeBox(b.id);}}>✕</button>
+                </div>
+                <div style={{fontSize:10,color:"#777",marginTop:3}}>{b.length}×{b.width}×{b.height} mm • {b.weight} kg</div>
+                {b.id===selectedBoxId && (
+                  <div style={{marginTop:6,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                    <div><label style={{fontSize:9,color:"#777"}}>X (mm)</label><input style={S.inp} type="number" value={b.x} onChange={e=>updateBox(b.id,{x:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
+                    <div><label style={{fontSize:9,color:"#777"}}>Y (mm)</label><input style={S.inp} type="number" value={b.y} onChange={e=>updateBox(b.id,{y:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
+                    <div><label style={{fontSize:9,color:"#777"}}>Z พื้น (mm)</label><input style={S.inp} type="number" value={b.z} onChange={e=>updateBox(b.id,{z:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {!boxes.length && <div style={{textAlign:"center",color:"#444",padding:16,fontSize:12}}>กด "+ เพิ่ม" เพื่อเพิ่มสินค้า</div>}
+          </div>
+          )}
 
           {savedLayouts.length > 0 && (
             <div style={{ ...S.sec, maxHeight: 100, overflow: "auto" }}>
@@ -1320,30 +1569,27 @@ export default function App() {
         <div style={S.vp}>
           <div style={S.tb}>
             <span style={{ fontSize: 10, color: "#555", marginRight: 3 }}>VIEW:</span>
-            {[["2d", "📋 Top"], ["side", "📐 Side"], ["3d", "🧊 3D"], ["split", "📋+🧊"]].map(([m, l]) => (
-              <button key={m} style={{ ...S.btn, ...(viewMode === m ? S.btnA : {}), padding: "3px 9px" }} onClick={() => setViewMode(m)}>{l}</button>
+            {[["car","🚗 Car Load"],["boxtop","📦 Box Top"],["box3d","📦 Box 3D"]].map(([m,l])=>(
+              <button key={m} style={{...S.btn,...(viewMode===m?S.btnA:{}),padding:"3px 9px"}} onClick={()=>setViewMode(m)}>{l}</button>
             ))}
             <div style={{ flex: 1 }} />
             <button style={{ ...S.btn, padding: "3px 8px", opacity: history.length ? 1 : 0.35 }} onClick={undo} disabled={!history.length} title="Ctrl+Z">↩ Undo</button>
             <button style={{ ...S.btn, padding: "3px 8px", opacity: future.length ? 1 : 0.35 }} onClick={redo} disabled={!future.length} title="Ctrl+Y">↪ Redo</button>
           </div>
           <div style={S.va}>
-            {viewMode === "2d" && <TopView2D container={container} vehicles={vehicles} selectedId={selectedId} onSelectVehicle={setSelectedId} onMoveVehicle={moveV} collisions={collisions} />}
-            {viewMode === "side" && <SideElevView container={container} vehicles={vehicles} selectedId={selectedId} onSelectVehicle={setSelectedId} onUpdateVehicle={updateV} />}
-            {viewMode === "3d" && <ThreeScene container={container} vehicles={vehicles} selectedId={selectedId} />}
-            {viewMode === "split" && (
-              <div style={{ display: "flex", height: "100%", gap: 1 }}>
-                <div style={{ flex: 1, borderRight: "1px solid #1a1a38" }}><TopView2D container={container} vehicles={vehicles} selectedId={selectedId} onSelectVehicle={setSelectedId} onMoveVehicle={moveV} collisions={collisions} /></div>
-                <div style={{ flex: 1 }}><ThreeScene container={container} vehicles={vehicles} selectedId={selectedId} /></div>
-              </div>
-            )}
+            {viewMode==="car" && <SideElevView container={container} vehicles={vehicles} selectedId={selectedId} onSelectVehicle={setSelectedId} onUpdateVehicle={updateV}/>}
+            {viewMode==="boxtop" && <BoxTopView container={container} boxes={boxes} selectedId={selectedBoxId} onSelectBox={setSelectedBoxId} onMoveBox={moveBox} collisions={boxCollisions}/>}
+            {viewMode==="box3d" && <BoxScene container={container} boxes={boxes} selectedId={selectedBoxId}/>}
           </div>
         </div>
       </div>
 
       <div style={S.status}>
         <span>{container.name} | {container.innerLength}×{container.innerWidth}×{container.innerHeight} mm</span>
-        <span>Vehicles: {vehicles.length} | {totalWeight.toLocaleString()} kg | Length: {Math.round(lengthPct)}%</span>
+        {viewMode==="car"
+          ? <span>Vehicles: {vehicles.length} | {totalWeight.toLocaleString()} kg | Length: {Math.round(lengthPct)}%</span>
+          : <span>Boxes: {boxes.length} | {totalBoxWeight.toLocaleString()} kg {totalBoxWeight>container.maxPayload?`⚠️ +${(totalBoxWeight-container.maxPayload).toLocaleString()}kg`:""}</span>
+        }
       </div>
     </div>
   );
