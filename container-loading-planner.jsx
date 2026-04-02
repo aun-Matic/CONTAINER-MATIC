@@ -1254,9 +1254,12 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
       if(!isOrbit) return;
       if(e.ctrlKey) {
         const panSpeed = radius / mount.clientHeight;
+        // left/right: strafe perpendicular to view direction on floor
         target.x -= Math.sin(theta) * dx * panSpeed;
         target.z += Math.cos(theta) * dx * panSpeed;
-        target.y -= dy * panSpeed;
+        // up/down: move forward/backward along view direction on floor
+        target.x -= Math.cos(theta) * dy * panSpeed;
+        target.z -= Math.sin(theta) * dy * panSpeed;
       } else {
         theta += dx * 0.005;
         phi = Math.max(0.1, Math.min(Math.PI/2-0.05, phi - dy * 0.005));
@@ -1268,21 +1271,28 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
       const { boxes: bxs, container: cnt } = stateRef.current;
       const b = bxs.find(x => x.id === bId); if(!b) return { x: nx, y: ny };
       const others = bxs.filter(x => x.id !== bId);
-      const overlaps = (ax, ay) => others.some(o =>
-        ax < o.x+o.length && ax+b.length > o.x && ay < o.y+o.width && ay+b.width > o.y
-      );
-      if(!overlaps(nx, ny)) return { x: nx, y: ny };
-      // Spiral search for free spot
-      const step = Math.max(b.length, b.width, 200);
-      for(let r=1; r<30; r++) {
-        for(let dx=-r; dx<=r; dx++) for(let dy=-r; dy<=r; dy++) {
-          if(Math.abs(dx)!==r && Math.abs(dy)!==r) continue;
-          const tx = Math.max(0, Math.min(cnt.innerLength-b.length, nx+dx*step));
-          const ty = Math.max(0, Math.min(cnt.innerWidth-b.width, ny+dy*step));
-          if(!overlaps(tx, ty)) return { x: tx, y: ty };
+      let rx = Math.max(0, Math.min(cnt.innerLength - b.length, nx));
+      let ry = Math.max(0, Math.min(cnt.innerWidth - b.width, ny));
+      // Iteratively push out of each overlapping box (min-penetration axis)
+      for(let pass=0; pass<10; pass++) {
+        let moved = false;
+        for(const o of others) {
+          const overlapX = Math.min(rx+b.length, o.x+o.length) - Math.max(rx, o.x);
+          const overlapY = Math.min(ry+b.width, o.y+o.width) - Math.max(ry, o.y);
+          if(overlapX <= 0 || overlapY <= 0) continue;
+          // Push along axis with smallest penetration
+          if(overlapX < overlapY) {
+            rx += rx+b.length/2 < o.x+o.length/2 ? -overlapX : overlapX;
+          } else {
+            ry += ry+b.width/2 < o.y+o.width/2 ? -overlapY : overlapY;
+          }
+          rx = Math.max(0, Math.min(cnt.innerLength - b.length, rx));
+          ry = Math.max(0, Math.min(cnt.innerWidth - b.width, ry));
+          moved = true;
         }
+        if(!moved) break;
       }
-      return { x: nx, y: ny };
+      return { x: rx, y: ry };
     };
 
     const onUp = () => {
