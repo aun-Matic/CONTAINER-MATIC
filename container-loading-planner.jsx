@@ -1624,6 +1624,10 @@ export default function App() {
   }, [boxes, container]);
 
   const totalBoxWeight = boxes.reduce((s,b)=>s+b.weight,0);
+  const containerVol = container.innerLength * container.innerWidth * container.innerHeight;
+  const usedVol = boxes.reduce((s,b)=>s+b.length*b.width*b.height,0);
+  const volPct = Math.round(usedVol/containerVol*100);
+  const boxesInContainer = boxes.filter(b=>b.x>=0&&b.x+b.length<=container.innerLength&&b.y>=0&&b.y+b.width<=container.innerWidth).length;
 
   const addBox = () => {
     const p = BOX_PRESETS.find(t=>t.id===addBoxPreset);
@@ -1645,26 +1649,52 @@ export default function App() {
   const updateBox = (id,u) => setBoxes(p=>p.map(b=>b.id===id?{...b,...u}:b));
   const moveBox = (id,x,y) => updateBox(id,{x:Math.max(0,x),y:Math.max(0,y)});
 
-  const packBoxes = (bxs, cnt) => {
-    const sorted = [...bxs].sort((a,b)=>b.length*b.width - a.length*a.width);
+  // 3D bin packing: fill floor rows first, then stack overflow on top of placed boxes
+  const packBoxes3D = (bxs, cnt) => {
+    const sorted = [...bxs].sort((a,b) => b.length*b.width - a.length*a.width);
+    const placed = [];
+
+    // Phase 1: shelf pack on Z=0
     let cx=0, cy=0, rowH=0;
-    return sorted.map(b=>{
+    const overflow = [];
+    for(const b of sorted) {
       if(cx+b.length > cnt.innerLength){ cx=0; cy+=rowH; rowH=0; }
-      if(cy+b.width > cnt.innerWidth) return b;
-      const nb={...b, x:cx, y:cy};
-      cx+=b.length; rowH=Math.max(rowH, b.width);
-      return nb;
-    });
+      if(cy+b.width <= cnt.innerWidth) {
+        placed.push({...b, x:cx, y:cy, z:0});
+        cx+=b.length; rowH=Math.max(rowH, b.width);
+      } else {
+        overflow.push(b);
+      }
+    }
+
+    // Phase 2: stack overflow on top of placed boxes (try each placed box as support)
+    for(const b of overflow) {
+      let best = null;
+      for(const sup of placed) {
+        const tx=sup.x, ty=sup.y, tz=sup.z+sup.height;
+        if(tx+b.length>cnt.innerLength || ty+b.width>cnt.innerWidth) continue;
+        if(tz+b.height>cnt.innerHeight) continue;
+        // check no 3D collision with already placed
+        const clash = placed.some(p=>{
+          const ox=Math.min(tx+b.length,p.x+p.length)-Math.max(tx,p.x);
+          const oy=Math.min(ty+b.width,p.y+p.width)-Math.max(ty,p.y);
+          const oz=Math.min(tz+b.height,p.z+p.height)-Math.max(tz,p.z);
+          return ox>1&&oy>1&&oz>1;
+        });
+        if(!clash && (!best || tz<best.tz)) best={tx,ty,tz};
+      }
+      placed.push(best ? {...b,x:best.tx,y:best.ty,z:best.tz} : {...b});
+    }
+    return placed;
   };
 
-  const autoArrangeBoxes = () => { saveHistory(); setBoxes(bxs=>packBoxes(bxs, container)); };
+  const autoArrangeBoxes = () => { saveHistory(); setBoxes(bxs=>packBoxes3D(bxs, container)); };
 
   const importBoxCSV = (file) => {
     const reader = new FileReader();
     reader.onload = e => {
       const lines = e.target.result.split(/\r?\n/).filter(l=>l.trim());
       const rows = lines.map(l=>l.split(/[,;\t]/));
-      // skip header if first cell looks like text and not a number
       const start = isNaN(Number(rows[0]?.[1])) ? 1 : 0;
       const newBoxes = [];
       rows.slice(start).forEach((r, i) => {
@@ -1675,15 +1705,13 @@ export default function App() {
         const wgt = Math.round(Number(r[4])||0);
         if(len>0 && wid>0 && hgt>0) newBoxes.push({
           id:generateId(), preset:name, name, length:len, width:wid, height:hgt, weight:wgt,
-          x:spawnX, y:spawnY, z:spawnZ, color:COLORS[(boxes.length+newBoxes.length)%COLORS.length],
+          x:spawnX, y:spawnY, z:spawnZ+newBoxes.reduce((s,b)=>s+b.height,0),
+          color:COLORS[(boxes.length+newBoxes.length)%COLORS.length],
         });
       });
-      if(!newBoxes.length){ alert("ไม่พบข้อมูล — ตรวจสอบ format: ชื่อ,ยาว,กว้าง,สูง[,น้ำหนัก]"); return; }
+      if(!newBoxes.length){ alert("ไม่พบข้อมูล — format: ชื่อ,ยาว,กว้าง,สูง[,น้ำหนัก]"); return; }
       saveHistory();
-      setBoxes(prev => {
-        const combined = [...prev, ...newBoxes];
-        return packBoxes(combined, container);
-      });
+      setBoxes(prev=>[...prev,...newBoxes]);
     };
     reader.readAsText(file, "UTF-8");
   };
@@ -1894,6 +1922,11 @@ export default function App() {
               <div style={S.lbl}>📦 สินค้า ({boxes.length}) • {totalBoxWeight.toLocaleString()} kg</div>
               <button style={{...S.btn,...S.btnP,padding:"3px 8px"}} onClick={()=>setShowAddBox(!showAddBox)}>+ เพิ่ม</button>
             </div>
+            <div style={{fontSize:10,color:"#7a8aaa",marginBottom:5,display:"flex",justifyContent:"space-between"}}>
+              <span>ในตู้: {boxesInContainer}/{boxes.length} ชิ้น</span>
+              <span style={{color:volPct>100?"#ff5555":volPct>80?"#F59E0B":"#00ddaa"}}>Vol: {volPct}%</span>
+            </div>
+            <div style={S.bar}><div style={S.fill(Math.min(volPct,100), volPct>100?"#ff5555":volPct>80?"#F59E0B":"#00ddaa")}/></div>
             <div style={{display:"flex",gap:4,marginBottom:6}}>
               <label style={{...S.btn,flex:1,textAlign:"center",cursor:"pointer",fontSize:10,padding:"3px 0"}}>
                 📂 Import CSV
