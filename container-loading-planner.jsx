@@ -1091,7 +1091,7 @@ function BoxTopView({ container, boxes, selectedId, onSelectBox, onMoveBox, coll
       const fs = Math.max(8, Math.min(bw,bh)*0.16);
       ctx.fillStyle = "#ffffffcc"; ctx.font = `${isSelected?"bold ":""}${fs}px sans-serif`;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(b.preset, bx+bw/2, by+bh/2 - fs*0.5);
+      ctx.fillText(b.name||b.preset, bx+bw/2, by+bh/2 - fs*0.5);
       ctx.font = `${Math.max(7,fs*0.8)}px monospace`; ctx.fillStyle = "#ffffff88";
       ctx.fillText(`${b.length}×${b.width}×${b.height}`, bx+bw/2, by+bh/2+fs*0.5);
       if (isSelected) { ctx.strokeStyle="#ffffff"; ctx.lineWidth=2; ctx.setLineDash([4,3]); ctx.strokeRect(bx-3,by-3,bw+6,bh+6); ctx.setLineDash([]); }
@@ -1111,7 +1111,14 @@ function BoxTopView({ container, boxes, selectedId, onSelectBox, onMoveBox, coll
     }
     onSelectBox(null);
   };
-  const handleMove = (e) => { if (!dragging) return; const {cx,cy}=getPos(e); const s=scaleRef.current; onMoveBox(dragging, Math.round((cx-PAD-dragOff.x)/s), Math.round((cy-PAD-dragOff.y)/s)); };
+  const handleMove = (e) => {
+    if (!dragging) return;
+    const {cx,cy}=getPos(e); const s=scaleRef.current;
+    const b=boxes.find(b=>b.id===dragging); if(!b) return;
+    const nx=Math.max(0,Math.min(container.innerLength-b.length,Math.round((cx-PAD-dragOff.x)/s)));
+    const ny=Math.max(0,Math.min(container.innerWidth-b.width,Math.round((cy-PAD-dragOff.y)/s)));
+    onMoveBox(dragging, nx, ny);
+  };
   const handleUp = () => setDragging(null);
 
   return <canvas ref={canvasRef} style={{width:"100%",height:"100%",cursor:dragging?"grabbing":"crosshair",display:"block"}} onMouseDown={handleDown} onMouseMove={handleMove} onMouseUp={handleUp} onMouseLeave={handleUp}/>;
@@ -1626,6 +1633,7 @@ export default function App() {
     const nb = {
       id: generateId(),
       preset: isCust?(customBox.label||"Custom"):p.name,
+      name: isCust?(customBox.label||"Custom"):p.name,
       length: isCust?customBox.length:p.length, width: bw,
       height: isCust?customBox.height:p.height, weight: isCust?customBox.weight:p.weight,
       x: spawnX, y: Math.max(0, Math.min(container.innerWidth - bw, spawnY)),
@@ -1633,8 +1641,52 @@ export default function App() {
     };
     setBoxes(prev=>[...prev,nb]); setSelectedBoxId(nb.id); setShowAddBox(false);
   };
+  const importBoxRef = useRef(null);
   const updateBox = (id,u) => setBoxes(p=>p.map(b=>b.id===id?{...b,...u}:b));
   const moveBox = (id,x,y) => updateBox(id,{x:Math.max(0,x),y:Math.max(0,y)});
+
+  const packBoxes = (bxs, cnt) => {
+    const sorted = [...bxs].sort((a,b)=>b.length*b.width - a.length*a.width);
+    let cx=0, cy=0, rowH=0;
+    return sorted.map(b=>{
+      if(cx+b.length > cnt.innerLength){ cx=0; cy+=rowH; rowH=0; }
+      if(cy+b.width > cnt.innerWidth) return b;
+      const nb={...b, x:cx, y:cy};
+      cx+=b.length; rowH=Math.max(rowH, b.width);
+      return nb;
+    });
+  };
+
+  const autoArrangeBoxes = () => { saveHistory(); setBoxes(bxs=>packBoxes(bxs, container)); };
+
+  const importBoxCSV = (file) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const lines = e.target.result.split(/\r?\n/).filter(l=>l.trim());
+      const rows = lines.map(l=>l.split(/[,;\t]/));
+      // skip header if first cell looks like text and not a number
+      const start = isNaN(Number(rows[0]?.[1])) ? 1 : 0;
+      const newBoxes = [];
+      rows.slice(start).forEach((r, i) => {
+        const name = r[0]?.trim()||`Item ${i+1}`;
+        const len = Math.round(Number(r[1])||500);
+        const wid = Math.round(Number(r[2])||400);
+        const hgt = Math.round(Number(r[3])||400);
+        const wgt = Math.round(Number(r[4])||0);
+        if(len>0 && wid>0 && hgt>0) newBoxes.push({
+          id:generateId(), preset:name, name, length:len, width:wid, height:hgt, weight:wgt,
+          x:spawnX, y:spawnY, z:spawnZ, color:COLORS[(boxes.length+newBoxes.length)%COLORS.length],
+        });
+      });
+      if(!newBoxes.length){ alert("ไม่พบข้อมูล — ตรวจสอบ format: ชื่อ,ยาว,กว้าง,สูง[,น้ำหนัก]"); return; }
+      saveHistory();
+      setBoxes(prev => {
+        const combined = [...prev, ...newBoxes];
+        return packBoxes(combined, container);
+      });
+    };
+    reader.readAsText(file, "UTF-8");
+  };
   const placeBox = (id,x,y,z) => {
     const upd = {};
     if(x !== null && x !== undefined) upd.x = Math.max(0, x);
@@ -1838,9 +1890,17 @@ export default function App() {
           </div>
           ) : (
           <div style={{ ...S.sec, flex: 1, overflow: "auto" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
               <div style={S.lbl}>📦 สินค้า ({boxes.length}) • {totalBoxWeight.toLocaleString()} kg</div>
               <button style={{...S.btn,...S.btnP,padding:"3px 8px"}} onClick={()=>setShowAddBox(!showAddBox)}>+ เพิ่ม</button>
+            </div>
+            <div style={{display:"flex",gap:4,marginBottom:6}}>
+              <label style={{...S.btn,flex:1,textAlign:"center",cursor:"pointer",fontSize:10,padding:"3px 0"}}>
+                📂 Import CSV
+                <input ref={importBoxRef} type="file" accept=".csv,.txt,.tsv" style={{display:"none"}}
+                  onChange={e=>{if(e.target.files[0]){importBoxCSV(e.target.files[0]);e.target.value="";}}}/>
+              </label>
+              <button style={{...S.btn,flex:1,fontSize:10,padding:"3px 0"}} onClick={autoArrangeBoxes} disabled={!boxes.length}>⚡ Auto Pack</button>
             </div>
             {showAddBox && (
               <div style={{background:"#161638",borderRadius:7,padding:9,marginBottom:8,border:"1px solid #00ffaa33"}}>
@@ -1879,16 +1939,22 @@ export default function App() {
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div style={{display:"flex",alignItems:"center",gap:5}}>
                     <div style={{width:10,height:10,borderRadius:2,background:b.color}}/>
-                    <span style={{fontWeight:600,fontSize:11}}>{b.preset}</span>
+                    <span style={{fontWeight:600,fontSize:11}}>{b.name||b.preset}</span>
                   </div>
                   <button style={{...S.btn,...S.btnD,padding:"1px 5px",fontSize:10}} onClick={e=>{e.stopPropagation();removeBox(b.id);}}>✕</button>
                 </div>
                 <div style={{fontSize:10,color:"#777",marginTop:3}}>{b.length}×{b.width}×{b.height} mm • {b.weight} kg</div>
                 {b.id===selectedBoxId && (
-                  <div style={{marginTop:6,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
-                    <div><label style={{fontSize:9,color:"#777"}}>X (mm)</label><input style={S.inp} type="number" value={b.x} onChange={e=>updateBox(b.id,{x:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
-                    <div><label style={{fontSize:9,color:"#777"}}>Y (mm)</label><input style={S.inp} type="number" value={b.y} onChange={e=>updateBox(b.id,{y:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
-                    <div><label style={{fontSize:9,color:"#777"}}>Z พื้น (mm)</label><input style={S.inp} type="number" value={b.z} onChange={e=>updateBox(b.id,{z:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
+                  <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:4}}>
+                    <div>
+                      <label style={{fontSize:9,color:"#00ddaa"}}>ชื่อสินค้า</label>
+                      <input style={S.inp} value={b.name||b.preset} onChange={e=>updateBox(b.id,{name:e.target.value})} onClick={e=>e.stopPropagation()} placeholder="ชื่อสินค้า..."/>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                      <div><label style={{fontSize:9,color:"#777"}}>X (mm)</label><input style={S.inp} type="number" value={b.x} onChange={e=>updateBox(b.id,{x:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
+                      <div><label style={{fontSize:9,color:"#777"}}>Y (mm)</label><input style={S.inp} type="number" value={b.y} onChange={e=>updateBox(b.id,{y:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
+                      <div><label style={{fontSize:9,color:"#777"}}>Z พื้น (mm)</label><input style={S.inp} type="number" value={b.z} onChange={e=>updateBox(b.id,{z:Number(e.target.value)})} onClick={e=>e.stopPropagation()}/></div>
+                    </div>
                   </div>
                 )}
               </div>
