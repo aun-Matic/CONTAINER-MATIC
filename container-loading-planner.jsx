@@ -1473,6 +1473,7 @@ export default function App() {
   const [customBox, setCustomBox] = useState({ length: 1000, width: 800, height: 800, weight: 50, label: "" });
   const [spawnX, setSpawnX] = useState(-1500);
   const [spawnY, setSpawnY] = useState(0);
+  const [spawnZ, setSpawnZ] = useState(0);
   const [projectName, setProjectName] = useState("My Project");
   const vehiclesRef = useRef([]);
   vehiclesRef.current = vehicles;
@@ -1628,7 +1629,7 @@ export default function App() {
       length: isCust?customBox.length:p.length, width: bw,
       height: isCust?customBox.height:p.height, weight: isCust?customBox.weight:p.weight,
       x: spawnX, y: Math.max(0, Math.min(container.innerWidth - bw, spawnY)),
-      z: 0, color: COLORS[boxes.length%COLORS.length],
+      z: Math.max(0, spawnZ), color: COLORS[boxes.length%COLORS.length],
     };
     setBoxes(prev=>[...prev,nb]); setSelectedBoxId(nb.id); setShowAddBox(false);
   };
@@ -1853,16 +1854,21 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                <div style={{marginTop:6,display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
+                <div style={{marginTop:6,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
                   <div>
                     <label style={{fontSize:9,color:"#00ddaa"}}>จุดเกิด X (mm)</label>
                     <input style={S.inp} type="number" value={spawnX} onChange={e=>setSpawnX(Number(e.target.value))}/>
-                    <div style={{fontSize:9,color:"#555",marginTop:1}}>ลบ = นอกตู้ด้านหลัง</div>
+                    <div style={{fontSize:9,color:"#555",marginTop:1}}>ลบ = นอกตู้</div>
                   </div>
                   <div>
                     <label style={{fontSize:9,color:"#00ddaa"}}>จุดเกิด Y (mm)</label>
                     <input style={S.inp} type="number" value={spawnY} onChange={e=>setSpawnY(Number(e.target.value))}/>
-                    <div style={{fontSize:9,color:"#555",marginTop:1}}>0 = ชิดผนังซ้าย</div>
+                    <div style={{fontSize:9,color:"#555",marginTop:1}}>0 = ผนังซ้าย</div>
+                  </div>
+                  <div>
+                    <label style={{fontSize:9,color:"#00ddaa"}}>จุดเกิด Z (mm)</label>
+                    <input style={S.inp} type="number" value={spawnZ} onChange={e=>setSpawnZ(Number(e.target.value))}/>
+                    <div style={{fontSize:9,color:"#555",marginTop:1}}>0 = พื้น</div>
                   </div>
                 </div>
                 <button style={{...S.btn,...S.btnP,width:"100%",marginTop:7}} onClick={addBox}>✓ เพิ่มสินค้า</button>
