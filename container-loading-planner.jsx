@@ -1137,7 +1137,7 @@ function makeBoxLabel(text, boxColor) {
   return new THREE.CanvasTexture(c);
 }
 
-function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
+function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox, onPlaceBox }) {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -1175,7 +1175,7 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
     const floorPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
     const floorPt = new THREE.Vector3();
     let isOrbit=false, startX=0, startY=0, theta=0.7, phi=0.55, radius=20000;
-    let isDraggingBox=false, dragBoxId=null, dragOffX=0, dragOffZ=0, dragNewX=0, dragNewY=0;
+    let isDraggingBox=false, dragBoxId=null, dragOffX=0, dragOffZ=0, dragNewX=0, dragNewY=0, dragIsStack=false;
     const target = new THREE.Vector3(6000,1200,0);
 
     const updateCam = () => {
@@ -1192,6 +1192,19 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
       const m = [];
       scene.traverse(o => { if(o.userData.isBoxMesh) m.push(o); });
       return m;
+    };
+
+    const calcStackZ = (bId, nx, ny) => {
+      const { boxes: bxs } = stateRef.current;
+      const b = bxs.find(x => x.id === bId); if(!b) return 0;
+      let topZ = 0;
+      for(const o of bxs) {
+        if(o.id === bId) continue;
+        const overlapX = Math.min(nx+b.length, o.x+o.length) - Math.max(nx, o.x);
+        const overlapY = Math.min(ny+b.width, o.y+o.width) - Math.max(ny, o.y);
+        if(overlapX > 1 && overlapY > 1) topZ = Math.max(topZ, o.z + o.height);
+      }
+      return topZ;
     };
 
     const onDown = (e) => {
@@ -1211,7 +1224,7 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
           if(b) {
             dragOffX = floorPt.x - (b.x + b.length/2);
             dragOffZ = floorPt.z - (b.y - cnt.innerWidth/2 + b.width/2);
-            dragNewX = b.x; dragNewY = b.y;
+            dragNewX = b.x; dragNewY = b.y; dragIsStack = e.shiftKey;
             dragBoxId = bId; isDraggingBox = true;
             renderer.domElement.style.cursor = "grabbing";
           }
@@ -1240,13 +1253,15 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
         const newMeshZ = floorPt.z - dragOffZ;
         dragNewX = Math.max(0, Math.min(cnt.innerLength - b.length, newMeshX - b.length/2));
         dragNewY = Math.max(0, Math.min(cnt.innerWidth - b.width, newMeshZ + cnt.innerWidth/2 - b.width/2));
+        const stackZ = dragIsStack ? calcStackZ(dragBoxId, dragNewX, dragNewY) : b.z;
         const finalMeshX = dragNewX + b.length/2;
+        const finalMeshY = stackZ + b.height/2;
         const finalMeshZ = dragNewY - cnt.innerWidth/2 + b.width/2;
         const entry = meshMapRef.current[dragBoxId];
         if(entry) {
-          entry.mesh.position.x = finalMeshX; entry.mesh.position.z = finalMeshZ;
-          entry.edges.position.x = finalMeshX; entry.edges.position.z = finalMeshZ;
-          if(entry.label) { entry.label.position.x = finalMeshX; entry.label.position.z = finalMeshZ; }
+          entry.mesh.position.set(finalMeshX, finalMeshY, finalMeshZ);
+          entry.edges.position.set(finalMeshX, finalMeshY, finalMeshZ);
+          if(entry.label) entry.label.position.set(finalMeshX, stackZ + b.height + 280, finalMeshZ);
         }
         return;
       }
@@ -1297,10 +1312,15 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
 
     const onUp = () => {
       if(isDraggingBox && dragBoxId) {
-        const free = findFreePos(dragBoxId, dragNewX, dragNewY);
-        stateRef.current.onMoveBox?.(dragBoxId, free.x, free.y);
+        if(dragIsStack) {
+          const newZ = calcStackZ(dragBoxId, dragNewX, dragNewY);
+          stateRef.current.onPlaceBox?.(dragBoxId, dragNewX, dragNewY, newZ);
+        } else {
+          const free = findFreePos(dragBoxId, dragNewX, dragNewY);
+          stateRef.current.onMoveBox?.(dragBoxId, free.x, free.y);
+        }
       }
-      isDraggingBox = false; dragBoxId = null; isOrbit = false;
+      isDraggingBox = false; dragBoxId = null; dragIsStack = false; isOrbit = false;
       renderer.domElement.style.cursor = "grab";
     };
 
@@ -1427,7 +1447,7 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox }) {
     <div style={{position:"relative",width:"100%",height:"100%"}}>
       <div ref={mountRef} style={{width:"100%",height:"100%"}}/>
       <div style={{position:"absolute",bottom:10,left:10,fontSize:10,color:"#6677aa",pointerEvents:"none",background:"rgba(0,0,0,0.4)",padding:"4px 9px",borderRadius:4,lineHeight:1.7}}>
-        🖱 Drag = หมุน &nbsp;|&nbsp; Ctrl+Drag = เลื่อนซ้ายขวา &nbsp;|&nbsp; Ctrl+Scroll = เลื่อนบนล่าง &nbsp;|&nbsp; Scroll = ซูม &nbsp;|&nbsp; ↑↓←→ = เลื่อนมุมมอง &nbsp;|&nbsp; ลากกล่อง = จัดตำแหน่ง
+        🖱 Drag = หมุน &nbsp;|&nbsp; Ctrl+Drag = เลื่อน &nbsp;|&nbsp; Scroll = ซูม &nbsp;|&nbsp; ↑↓←→ = เลื่อนมุมมอง &nbsp;|&nbsp; ลากกล่อง = จัดพื้น &nbsp;|&nbsp; Shift+ลากกล่อง = ซ้อนทับ
       </div>
     </div>
   );
@@ -1613,6 +1633,7 @@ export default function App() {
   };
   const updateBox = (id,u) => setBoxes(p=>p.map(b=>b.id===id?{...b,...u}:b));
   const moveBox = (id,x,y) => updateBox(id,{x:Math.max(0,x),y:Math.max(0,y)});
+  const placeBox = (id,x,y,z) => updateBox(id,{x:Math.max(0,x),y:Math.max(0,y),z:Math.max(0,z)});
   const removeBox = (id) => { saveHistory(); setBoxes(p=>p.filter(b=>b.id!==id)); if(selectedBoxId===id)setSelectedBoxId(null); };
 
   const updateV = (id, u) => setVehicles((p) => p.map((v) => v.id === id ? { ...v, ...u } : v));
@@ -1866,7 +1887,7 @@ export default function App() {
           <div style={S.va}>
             {viewMode==="car" && <SideElevView ref={sideElevRef} container={container} vehicles={vehicles} selectedId={selectedId} onSelectVehicle={setSelectedId} onUpdateVehicle={updateV}/>}
             {viewMode==="boxtop" && <BoxTopView container={container} boxes={boxes} selectedId={selectedBoxId} onSelectBox={setSelectedBoxId} onMoveBox={moveBox} collisions={boxCollisions}/>}
-            {viewMode==="box3d" && <BoxScene container={container} boxes={boxes} selectedId={selectedBoxId} onMoveBox={moveBox} onSelectBox={setSelectedBoxId}/>}
+            {viewMode==="box3d" && <BoxScene container={container} boxes={boxes} selectedId={selectedBoxId} onMoveBox={moveBox} onSelectBox={setSelectedBoxId} onPlaceBox={placeBox}/>}
           </div>
         </div>
       </div>
