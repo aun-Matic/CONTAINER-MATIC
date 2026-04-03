@@ -1433,6 +1433,18 @@ function BoxScene({ container, boxes, selectedId, onMoveBox, onSelectBox, onPlac
       const tick=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x00ffaa}));
       tick.userData.dynamic=true; scene.add(tick);
     }
+    // Width labels every 500mm along door-side edge (Z axis = container Y)
+    const wStep = 500;
+    for(let w=0; w<=container.innerWidth; w+=wStep) {
+      const z3d = w - container.innerWidth/2;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:makeScaleLabel3D(`${w}`), depthTest:false}));
+      sp.scale.set(600,150,1);
+      sp.position.set(container.innerLength+500, -250, z3d);
+      sp.userData.dynamic=true; scene.add(sp);
+      const pts=[new THREE.Vector3(container.innerLength+50,-10,z3d),new THREE.Vector3(container.innerLength+300,-10,z3d)];
+      const tick=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x00ffaa}));
+      tick.userData.dynamic=true; scene.add(tick);
+    }
 
     // 3D collision detection
     const colliding3D = new Set();
