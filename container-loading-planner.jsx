@@ -1881,26 +1881,30 @@ export default function App() {
       return covered>=bl*bw*0.99;
     };
 
-    // Phase 1: shelf pack on floor Z=0 (no support check needed)
+    // Phase 1: shelf pack on floor Z=0, tries both orientations per box
     const shelfFloor = (boxes) => {
       const rem=[];
       let cx=0,cy=0,rowH=0;
       for(const b of boxes){
-        if(cx+b.length>cnt.innerLength){cx=0;cy+=rowH;rowH=0;}
-        if(cy+b.width<=cnt.innerWidth && b.height<=cnt.innerHeight){
-          placed.push({...b,x:cx,y:cy,z:0});
-          cx+=b.length; rowH=Math.max(rowH,b.width);
-        } else { rem.push(b); }
+        const orients=[[b.length,b.width],[b.width,b.length]];
+        let ok=false;
+        for(const [l,w] of orients){
+          let nx=cx,ny=cy,nrH=rowH;
+          if(nx+l>cnt.innerLength){nx=0;ny+=nrH;nrH=0;}
+          if(ny+w<=cnt.innerWidth&&b.height<=cnt.innerHeight){
+            placed.push({...b,length:l,width:w,x:nx,y:ny,z:0});
+            cx=nx+l; cy=ny; rowH=Math.max(nrH,w); ok=true; break;
+          }
+        }
+        if(!ok) rem.push(b);
       }
       return rem;
     };
 
-    // Phase 2+: extreme-point scanning — tries every corner position on the support surface
-    // Fills gaps in all directions, requires full base support
+    // Phase 2+: extreme-point scanning, tries both orientations per candidate position
     const placeAtZ = (boxes, z) => {
       const rem=[];
       for(const b of boxes){
-        // Rebuild candidate corners — include both support-below AND same-level boxes
         const xs=new Set([0]); const ys=new Set([0]);
         placed.forEach(p=>{
           if(Math.abs(p.z+p.height-z)<2 || Math.abs(p.z-z)<2){
@@ -1913,12 +1917,15 @@ export default function App() {
         )];
         let found=false;
         for(const {x,y} of candidates){
-          if(x+b.length<=cnt.innerLength && y+b.width<=cnt.innerWidth &&
-             z+b.height<=cnt.innerHeight &&
-             hasFullSupport(x,y,b.length,b.width,z) &&
-             !collides(x,y,z,b.length,b.width,b.height)){
-            placed.push({...b,x,y,z}); found=true; break;
+          for(const [bl,bw] of [[b.length,b.width],[b.width,b.length]]){
+            if(x+bl<=cnt.innerLength&&y+bw<=cnt.innerWidth&&
+               z+b.height<=cnt.innerHeight&&
+               hasFullSupport(x,y,bl,bw,z)&&
+               !collides(x,y,z,bl,bw,b.height)){
+              placed.push({...b,length:bl,width:bw,x,y,z}); found=true; break;
+            }
           }
+          if(found) break;
         }
         if(!found) rem.push(b);
       }
