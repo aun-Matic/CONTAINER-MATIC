@@ -1927,10 +1927,11 @@ export default function App() {
 
     let remaining=shelfFloor(sorted);
 
-    for(let iter=0; iter<8&&remaining.length>0; iter++){
-      const zLevels=[...new Set(placed.map(p=>p.z+p.height))]
-        .filter(z=>z+1<cnt.innerHeight).sort((a,b)=>a-b);
-      if(!zLevels.length) break;
+    for(let iter=0; iter<10&&remaining.length>0; iter++){
+      // Include Z=0 every iteration so extreme-point can back-fill floor gaps
+      const upperLevels=[...new Set(placed.map(p=>p.z+p.height))]
+        .filter(z=>z>0&&z+1<cnt.innerHeight);
+      const zLevels=[0,...upperLevels].sort((a,b)=>a-b);
       const before=remaining.length;
       for(const z of zLevels){ if(!remaining.length) break; remaining=placeAtZ(remaining,z); }
       if(remaining.length===before) break;
