@@ -1868,10 +1868,10 @@ export default function App() {
     const placeAtZ = (boxes, z) => {
       const rem=[];
       for(const b of boxes){
-        // Rebuild candidate corners from current placed set (regenerate after each placement)
+        // Rebuild candidate corners — include both support-below AND same-level boxes
         const xs=new Set([0]); const ys=new Set([0]);
         placed.forEach(p=>{
-          if(Math.abs(p.z+p.height-z)<2){
+          if(Math.abs(p.z+p.height-z)<2 || Math.abs(p.z-z)<2){
             xs.add(p.x); xs.add(p.x+p.length);
             ys.add(p.y); ys.add(p.y+p.width);
           }
