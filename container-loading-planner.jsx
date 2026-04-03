@@ -1922,6 +1922,13 @@ export default function App() {
                z+b.height<=cnt.innerHeight&&
                hasFullSupport(x,y,bl,bw,z)&&
                !collides(x,y,z,bl,bw,b.height)){
+              // Upper floors: reject if this box is larger than the biggest support below
+              if(z>0){
+                const maxSupportArea=Math.max(...placed
+                  .filter(p=>Math.abs(p.z+p.height-z)<2&&p.x<x+bl&&p.x+p.length>x&&p.y<y+bw&&p.y+p.width>y)
+                  .map(p=>p.length*p.width),0);
+                if(bl*bw>maxSupportArea*1.05) continue;
+              }
               placed.push({...b,length:bl,width:bw,x,y,z}); found=true; break;
             }
           }
@@ -1935,7 +1942,8 @@ export default function App() {
     let remaining=shelfFloor(sorted);
 
     for(let iter=0; iter<10&&remaining.length>0; iter++){
-      // Include Z=0 every iteration so extreme-point can back-fill floor gaps
+      // Always sort largest-first so big boxes claim lower levels before small ones go up
+      remaining.sort((a,b)=>b.length*b.width-a.length*a.width);
       const upperLevels=[...new Set(placed.map(p=>p.z+p.height))]
         .filter(z=>z>0&&z+1<cnt.innerHeight);
       const zLevels=[0,...upperLevels].sort((a,b)=>a-b);
