@@ -2274,7 +2274,10 @@ export default function App() {
                   </div>
                   <button style={{...S.btn,...S.btnD,padding:"1px 5px",fontSize:10}} onClick={e=>{e.stopPropagation();removeBox(b.id);}}>✕</button>
                 </div>
-                <div style={{fontSize:10,color:"#777",marginTop:3}}>{b.length}×{b.width}×{b.height} mm • {b.weight} kg</div>
+                <div style={{fontSize:10,color:"#777",marginTop:3,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span>{b.length}×{b.width}×{b.height} mm • {b.weight} kg</span>
+                  <button title="หมุน ยาว↔กว้าง" style={{...S.btn,padding:"1px 5px",fontSize:10,color:"#00ddaa",borderColor:"#00ddaa44"}} onClick={e=>{e.stopPropagation();updateBox(b.id,{length:b.width,width:b.length});}}>⟳</button>
+                </div>
                 {b.id===selectedBoxId && (
                   <div style={{marginTop:6,display:"flex",flexDirection:"column",gap:4}}>
                     <div>
